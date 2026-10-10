@@ -1,0 +1,72 @@
+name: Build notify APK
+
+# 手动触发：Actions 页面 -> Build notify APK -> Run workflow
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout v0.2.16 and apply notify patch
+        run: |
+          cp DiPlay-notify.patch /tmp/DiPlay-notify.patch
+          git checkout v0.2.16
+          git apply --check /tmp/DiPlay-notify.patch
+          git apply --stat /tmp/DiPlay-notify.patch
+          git apply /tmp/DiPlay-notify.patch
+
+      - name: Extract auth assets from official APK
+        run: |
+          curl -sL -o /tmp/official.apk https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.16/DiPlay-0.2.16.apk
+          mkdir -p runtime-assets/offline-mfi
+          unzip -o -j /tmp/official.apk "assets/offline-mfi/*" -d runtime-assets/offline-mfi
+          ls -la runtime-assets/offline-mfi/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate signing keystore
+        run: |
+          keytool -genkeypair -keystore /tmp/release.keystore -alias diplay-notify \
+            -keyalg RSA -keysize 2048 -validity 10950 \
+            -storepass android -keypass android \
+            -dname "CN=DiPlay Notify"
+
+      - name: Build release APK
+        env:
+          DIPLAY_AUTH_ASSETS_DIR: ${{ github.workspace }}/runtime-assets
+          ANDROID_KEYSTORE_PATH: /tmp/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: android
+          ANDROID_KEY_ALIAS: diplay-notify
+          ANDROID_KEY_PASSWORD: android
+        run: ./gradlew :mobile:assembleRelease --stacktrace
+
+      - name: Verify APK contents
+        run: |
+          APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
+          echo "APK=$APK"
+          unzip -l "$APK" | grep "assets/offline-mfi/"
+          ls -la "$(dirname "$APK")"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiPlay-0.2.16-notify
+          path: mobile/build/outputs/apk/release/*.apk
