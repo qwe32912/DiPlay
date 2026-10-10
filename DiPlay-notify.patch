@@ -1,0 +1,212 @@
+diff --git a/common/src/main/AndroidManifest.xml b/common/src/main/AndroidManifest.xml
+index d641818..635dc19 100644
+--- a/common/src/main/AndroidManifest.xml
++++ b/common/src/main/AndroidManifest.xml
+@@ -153,9 +153,17 @@
+             android:exported="true">
+             <intent-filter>
+                 <action android:name="android.intent.action.BOOT_COMPLETED" />
++                <!-- Sent by some head-unit ROMs instead of BOOT_COMPLETED. -->
++                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+             </intent-filter>
+         </receiver>
+ 
++        <!-- Watchdog for the persistent entry notification; woken by AlarmManager. -->
++        <receiver
++            android:name="com.shilapi.xcertplay.BootEntryWatchdogReceiver"
++            android:enabled="true"
++            android:exported="false" />
++
+         <service
+             android:name="com.shilapi.xcertplay.UsbAutoConfirmService"
+             android:exported="true"
+diff --git a/common/src/main/java/com/shilapi/xcertplay/BootEntryNotification.kt b/common/src/main/java/com/shilapi/xcertplay/BootEntryNotification.kt
+new file mode 100644
+index 0000000..014f7f4
+--- /dev/null
++++ b/common/src/main/java/com/shilapi/xcertplay/BootEntryNotification.kt
+@@ -0,0 +1,102 @@
++package com.shilapi.xcertplay
++
++import android.app.AlarmManager
++import android.app.PendingIntent
++import android.content.Context
++import android.content.Intent
++import android.os.SystemClock
++import android.util.Log
++import androidx.core.app.NotificationChannelCompat
++import androidx.core.app.NotificationCompat
++import androidx.core.app.NotificationManagerCompat
++
++/**
++ * Persistent entry point for head units whose launcher hides installed apps.
++ *
++ * Posts a plain ongoing (non-clearable) notification that opens DiPlay when tapped.
++ * This is deliberately NOT a foreground service: a plain notification is held by the
++ * system notification service, so it stays in the shade even if the app process is
++ * killed afterwards, and tapping it relaunches the app.
++ *
++ * A watchdog alarm re-checks periodically: if the notification is gone, it is
++ * re-posted immediately. Alarms are held by the system and survive process death;
++ * a manual "Force stop" clears both alarms and notifications (platform behavior).
++ */
++object BootEntryNotification {
++    private const val TAG = "xcertplay-boot-entry"
++    private const val CHANNEL_ID = "diplay_boot_entry"
++    private const val NOTIFICATION_ID = 0xD1A1
++    private const val WATCHDOG_REQUEST_CODE = 0x9D06
++    internal const val WATCHDOG_INTERVAL_MS = 10L * 60L * 1000L
++
++    /** Post (or re-post) the ongoing entry notification. Safe to call repeatedly. */
++    fun ensurePosted(context: Context) {
++        try {
++            val manager = NotificationManagerCompat.from(context)
++            manager.createNotificationChannel(
++                NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
++                    .setName(context.getString(R.string.boot_entry_channel_name))
++                    .build(),
++            )
++            val launch = Intent(context, DiPlayActivity::class.java).apply {
++                addFlags(
++                    Intent.FLAG_ACTIVITY_NEW_TASK or
++                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
++                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
++                )
++            }
++            val tap = PendingIntent.getActivity(
++                context,
++                0,
++                launch,
++                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
++            )
++            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
++                .setSmallIcon(R.drawable.ic_carplay)
++                .setContentTitle(context.getString(R.string.app_name))
++                .setContentText(context.getString(R.string.boot_entry_text))
++                .setOngoing(true)
++                .setContentIntent(tap)
++                .build()
++            manager.notify(NOTIFICATION_ID, notification)
++        } catch (error: RuntimeException) {
++            Log.w(TAG, "Entry notification could not be posted", error)
++        }
++    }
++
++    /** True when our entry notification is currently visible in the shade. */
++    fun isPosted(context: Context): Boolean {
++        return try {
++            NotificationManagerCompat.from(context).activeNotifications
++                .any { it.id == NOTIFICATION_ID }
++        } catch (error: RuntimeException) {
++            Log.w(TAG, "Could not query active notifications", error)
++            true // Do not spam reposts when the query itself fails.
++        }
++    }
++
++    /**
++     * Schedule the next watchdog check. One-shot alarm held by the system, so it
++     * survives the app process being killed; the watchdog receiver re-schedules
++     * itself on every delivery. setAndAllowWhileIdle keeps it working in Doze;
++     * the 10-minute interval stays above the while-idle rate limit.
++     */
++    fun scheduleWatchdog(context: Context) {
++        try {
++            val alarms = context.getSystemService(AlarmManager::class.java) ?: return
++            val check = PendingIntent.getBroadcast(
++                context,
++                WATCHDOG_REQUEST_CODE,
++                Intent(context, BootEntryWatchdogReceiver::class.java),
++                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
++            )
++            alarms.setAndAllowWhileIdle(
++                AlarmManager.ELAPSED_REALTIME_WAKEUP,
++                SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS,
++                check,
++            )
++        } catch (error: RuntimeException) {
++            Log.w(TAG, "Watchdog alarm could not be scheduled", error)
++        }
++    }
++}
+diff --git a/common/src/main/java/com/shilapi/xcertplay/BootEntryWatchdogReceiver.kt b/common/src/main/java/com/shilapi/xcertplay/BootEntryWatchdogReceiver.kt
+new file mode 100644
+index 0000000..21a0821
+--- /dev/null
++++ b/common/src/main/java/com/shilapi/xcertplay/BootEntryWatchdogReceiver.kt
+@@ -0,0 +1,22 @@
++package com.shilapi.xcertplay
++
++import android.content.BroadcastReceiver
++import android.content.Context
++import android.content.Intent
++
++/**
++ * Watchdog for the persistent DiPlay entry notification.
++ *
++ * Fired by a system-held AlarmManager alarm (see [BootEntryNotification.scheduleWatchdog]):
++ * if the notification is no longer in the shade, re-post it immediately, then schedule
++ * the next check. The alarm survives the app process being killed; a manual "Force stop"
++ * clears alarms and notifications together (platform behavior).
++ */
++class BootEntryWatchdogReceiver : BroadcastReceiver() {
++    override fun onReceive(context: Context, intent: Intent) {
++        if (!BootEntryNotification.isPosted(context)) {
++            BootEntryNotification.ensurePosted(context)
++        }
++        BootEntryNotification.scheduleWatchdog(context)
++    }
++}
+diff --git a/common/src/main/java/com/shilapi/xcertplay/BootReceiver.kt b/common/src/main/java/com/shilapi/xcertplay/BootReceiver.kt
+index 6b24dad..03c154f 100644
+--- a/common/src/main/java/com/shilapi/xcertplay/BootReceiver.kt
++++ b/common/src/main/java/com/shilapi/xcertplay/BootReceiver.kt
+@@ -8,7 +8,13 @@ import android.util.Log
+ /** Starts the CarPlay host after boot when the user has enabled the startup option. */
+ class BootReceiver : BroadcastReceiver() {
+     override fun onReceive(context: Context, intent: Intent) {
+-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
++        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
++            intent.action != QUICKBOOT_POWERON_ACTION
++        ) return
++        // Always available: persistent notification entry plus the watchdog that
++        // re-posts it if it ever disappears. Independent of the auto-start setting.
++        BootEntryNotification.ensurePosted(context)
++        BootEntryNotification.scheduleWatchdog(context)
+         val launchEnabled = AirPlayPersistence.loadAutoStartOnBoot(context)
+         StartupDiagnosticSnapshot.received(context, launchEnabled)
+         if (!launchEnabled) return
+@@ -31,5 +37,7 @@ class BootReceiver : BroadcastReceiver() {
+ 
+     private companion object {
+         const val TAG = "xcertplay-boot"
++        /** Sent by some head-unit ROMs instead of BOOT_COMPLETED. */
++        const val QUICKBOOT_POWERON_ACTION = "android.intent.action.QUICKBOOT_POWERON"
+     }
+ }
+diff --git a/common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt b/common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt
+index 9ffc2c9..d8e5c52 100644
+--- a/common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt
++++ b/common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt
+@@ -324,6 +324,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
+ 
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
++        // Keep the notification-shade entry available even if boot delivery was missed.
++        BootEntryNotification.ensurePosted(this)
+         // Back on the home page finishes this activity while the session runs on, so the icon lands here.
+         if (savedInstanceState == null && isLauncherIntent(intent) && CarPlayBackgroundSession.hasSession()) {
+             openProjection(); finish(); return
+diff --git a/common/src/main/res/values/strings.xml b/common/src/main/res/values/strings.xml
+index 8789f72..03a188a 100644
+--- a/common/src/main/res/values/strings.xml
++++ b/common/src/main/res/values/strings.xml
+@@ -850,4 +850,9 @@
+     <string name="cluster_small_window_card_opacity">Small-window turn card · opacity</string>
+     <string name="turn_card_theme_day">Always day</string>
+     <string name="turn_card_theme_night">Always night</string>
++    <string name="turn_card_theme_follow">Follow the turn card theme</string>
++    <!-- Persistent boot-entry notification: lets the driver open DiPlay from the
++         notification shade on head units whose launcher hides installed apps. -->
++    <string name="boot_entry_channel_name">DiPlay 快捷入口</string>
++    <string name="boot_entry_text">点击打开 DiPlay · Tap to open</string>
+ </resources>
