@@ -22,10 +22,10 @@ index d641818..635dc19 100644
              android:exported="true"
 diff --git a/common/src/main/java/com/shilapi/xcertplay/BootEntryNotification.kt b/common/src/main/java/com/shilapi/xcertplay/BootEntryNotification.kt
 new file mode 100644
-index 0000000..014f7f4
+index 0000000..bd192b9
 --- /dev/null
 +++ b/common/src/main/java/com/shilapi/xcertplay/BootEntryNotification.kt
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,103 @@
 +package com.shilapi.xcertplay
 +
 +import android.app.AlarmManager
@@ -37,6 +37,7 @@ index 0000000..014f7f4
 +import androidx.core.app.NotificationChannelCompat
 +import androidx.core.app.NotificationCompat
 +import androidx.core.app.NotificationManagerCompat
++import com.shilapi.xcertplay.host.R
 +
 +/**
 + * Persistent entry point for head units whose launcher hides installed apps.
