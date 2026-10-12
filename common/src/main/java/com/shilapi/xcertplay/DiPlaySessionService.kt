@@ -10,14 +10,29 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import com.shilapi.xcertplay.host.R
 
 /** Keeps an explicitly started connection alive when another car app is in the foreground. */
 class DiPlaySessionService : Service() {
+    private val cleanerHandler = Handler(Looper.getMainLooper())
+    private var backgroundCleanerRunning = false
+    private val backgroundCleanerTask = object : Runnable {
+        override fun run() {
+            if (!backgroundCleanerRunning) return
+            runCatching { BackgroundCleaner.clean(this@DiPlaySessionService) }
+            if (backgroundCleanerRunning) {
+                cleanerHandler.postDelayed(this, BackgroundCleaner.CLEAN_INTERVAL_MILLIS)
+            }
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            stopBackgroundCleaner()
             CarPlayBackgroundSession.stop()
             stopSelf()
             return START_NOT_STICKY
@@ -52,11 +67,32 @@ class DiPlaySessionService : Service() {
             }
             startForeground(1, notification, types)
         } else startForeground(1, notification)
+        startBackgroundCleaner()
         return START_NOT_STICKY
     }
+
+    /** Cleans once right away, then every [BackgroundCleaner.CLEAN_INTERVAL_MILLIS] until stopped. */
+    private fun startBackgroundCleaner() {
+        // onStartCommand can be called again for a running service; never run two loops.
+        if (backgroundCleanerRunning) return
+        backgroundCleanerRunning = true
+        cleanerHandler.post(backgroundCleanerTask)
+    }
+
+    private fun stopBackgroundCleaner() {
+        backgroundCleanerRunning = false
+        cleanerHandler.removeCallbacks(backgroundCleanerTask)
+    }
+
+    override fun onDestroy() {
+        stopBackgroundCleaner()
+        super.onDestroy()
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         // BYD's recents force-stops the package ~10 ms after removing the task: end guidance first.
         com.shilapi.xcertplay.hud.BydNavigationOutputs.endNow()
+        stopBackgroundCleaner()
         CarPlayBackgroundSession.stop()
         stopSelf()
     }
