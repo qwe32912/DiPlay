@@ -2,18 +2,22 @@ package com.shilapi.xcertplay
 
 import android.app.ActivityManager
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.util.Log
 
 /**
  * Frees memory for the software-decoded CarPlay video on the memory-tight Nezha head unit
  * by asking Android to kill the background processes of other apps.
  *
- * System apps are never touched, and the packages the car relies on while driving (the
- * launcher, System UI, the media hub that forwards Now Playing to the cluster, the cluster
- * interconnection service and the car's own navigation) are whitelisted explicitly as well,
- * so they stay protected even if one of them loses its system flag. Killing a
- * background process is only a hint: Android restarts anything it still needs.
+ * Almost everything preinstalled on this head unit is a system app, and those stock apps
+ * are exactly what holds the memory, so a system flag must not exempt an app from the
+ * cleanup. Instead only the small set of packages the car cannot drive without is
+ * protected: DiPlay itself, the system server, System UI, the launcher, the cluster
+ * interconnection service that owns the instrument display, the media hub that forwards
+ * Now Playing to the cluster, and the Bluetooth, phone and network stacks. Everything
+ * else — including the stock navigation and the car maker's own apps — is cleaned:
+ * [ActivityManager.killBackgroundProcesses] cannot kill a process that holds a
+ * foreground service, so anything actively in use survives anyway, and Android restarts
+ * anything it still needs.
  */
 internal object BackgroundCleaner {
     private const val TAG = "BackgroundCleaner"
@@ -21,27 +25,26 @@ internal object BackgroundCleaner {
     /** How often the cleanup repeats while a session is running. */
     const val CLEAN_INTERVAL_MILLIS = 5 * 60_000L
 
-    /** Packages that must never be killed, even when they are not flagged as system apps. */
-    val WHITELISTED_PACKAGES = setOf(
+    /** Packages that must never be killed. Every other package is cleaned. */
+    val PROTECTED_PACKAGES = setOf(
+        "android",
         "com.android.systemui",
         "com.android.launcher3",
-        "of.mediaserver.hz",
         "com.ofilm.clusterinterconnection",
-        "com.autonavi.minimap",
+        "of.mediaserver.hz",
+        "com.android.bluetooth",
+        "com.android.phone",
+        "com.android.networkstack",
     )
 
-    /** Every package of the car maker itself is off limits. */
-    const val HOZONAUTO_PACKAGE_PREFIX = "com.hozonauto."
-
     /**
-     * Whether [packageName] must be left alone: this app itself, any system app, an
-     * explicitly whitelisted package, or any package of the car maker.
+     * Whether [packageName] must be left alone: this app itself, or one of the few
+     * protected packages. [flags] is deliberately ignored: whether an app is a system
+     * app no longer decides anything (see the class documentation).
      */
+    @Suppress("UNUSED_PARAMETER")
     fun shouldSkip(packageName: String, flags: Int, ownPackage: String): Boolean =
-        packageName == ownPackage ||
-            flags and ApplicationInfo.FLAG_SYSTEM != 0 ||
-            packageName in WHITELISTED_PACKAGES ||
-            packageName.startsWith(HOZONAUTO_PACKAGE_PREFIX)
+        packageName == ownPackage || packageName in PROTECTED_PACKAGES
 
     /**
      * Kills the background processes of every installed app [shouldSkip] does not protect.
