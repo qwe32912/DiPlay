@@ -392,6 +392,7 @@ class CarPlayHostActivity : ComponentActivity() {
         runOnUiThread {
             clusterTurnGuidance = guidance
             applyClusterTurnOverlay()
+            NezhaClusterGate.onGuidanceChanged(this@CarPlayHostActivity, guidance)
         }
     }
     // Copies of stream 111 outside the dashboard (centre card, launcher maps) each get their own decoder.
@@ -1161,12 +1162,14 @@ class CarPlayHostActivity : ComponentActivity() {
             if (clusterPresentation === presentation) {
                 clusterPresentation = null
                 com.shilapi.xcertplay.hud.BydNavigationOutputs.setClusterMapShown(false)
+                NezhaClusterGate.onPresentationHidden(this@CarPlayHostActivity)
                 updateClusterMapShown()
             }
         }
         try {
             presentation.show()
             clusterPresentation = presentation
+            NezhaClusterGate.onPresentationShown(this, display)
             updateClusterMapShown()
             presentation.setStreamActive(SCREEN_TYPE_ALT in activeScreenStreamTypes)
             applyClusterTurnOverlay()
@@ -1286,6 +1289,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
     private fun dismissClusterPresentation() {
+        NezhaClusterGate.onPresentationHidden(this)
         ClusterActivityOutput.stop(this)
         val presentations = (clusterLayers.values + listOfNotNull(clusterPresentation)).distinct()
         clusterLayers.clear()
