@@ -1382,7 +1382,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 val smallWindow = smallWindowActive()
                 requestedSmallWindowForStream = smallWindow
                 // The Nezha panel is fully visible, so it must not inherit the DiLink safe
-                // area that shrinks the map into the uncovered centre of a BYD cluster.
+                // area that shrinks the map into the uncovered centre of a BYD cluster, nor
+                // the DiLink-calibrated marker sliders: its marker anchor is fixed to the
+                // OEM Amap position for this panel (see NezhaClusterDisplay).
                 val nezhaCluster = NezhaClusterDisplay.accepts(display.name, size.x, size.y)
                 fun streamAt(scale: Int) = CarPlayClusterDisplay.config(
                     size.x,
@@ -1391,9 +1393,11 @@ class CarPlayHostActivity : ComponentActivity() {
                     0,
                     0,
                     AirPlayPersistence.loadClusterContent(this),
-                    markerXPercent = if (smallWindow) AirPlayPersistence.loadClusterSmallWindowMarkerXPercent(this)
+                    markerXPercent = if (nezhaCluster) NezhaClusterDisplay.MARKER_X_PERCENT
+                    else if (smallWindow) AirPlayPersistence.loadClusterSmallWindowMarkerXPercent(this)
                     else AirPlayPersistence.loadClusterMarkerXPercent(this),
-                    markerYPercent = if (smallWindow) AirPlayPersistence.loadClusterSmallWindowMarkerYPercent(this)
+                    markerYPercent = if (nezhaCluster) NezhaClusterDisplay.MARKER_Y_PERCENT
+                    else if (smallWindow) AirPlayPersistence.loadClusterSmallWindowMarkerYPercent(this)
                     else AirPlayPersistence.loadClusterMarkerYPercent(this),
                     baseSafeArea = if (nezhaCluster) NezhaClusterDisplay.SAFE_AREA_PERCENT
                     else CarPlayClusterDisplay.SAFE_AREA_PERCENT,
