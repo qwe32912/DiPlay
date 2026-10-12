@@ -34,20 +34,29 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate signing keystore
+      # 固定签名：keystore 存在仓库 Actions secrets（NEZHA_KEYSTORE_B64 等），所有版本共用同一证书，可覆盖安装。
+      # secrets 缺失时直接失败，禁止回退到临时密钥（历史上临时密钥导致每版签名不同、必须卸载重装）。
+      - name: Restore fixed signing keystore
+        env:
+          NEZHA_KEYSTORE_B64: ${{ secrets.NEZHA_KEYSTORE_B64 }}
+          NEZHA_STORE_PASSWORD: ${{ secrets.NEZHA_STORE_PASSWORD }}
+          NEZHA_KEY_ALIAS: ${{ secrets.NEZHA_KEY_ALIAS }}
+          NEZHA_KEY_PASSWORD: ${{ secrets.NEZHA_KEY_PASSWORD }}
         run: |
-          keytool -genkeypair -keystore /tmp/release.keystore -alias diplay-neta \
-            -keyalg RSA -keysize 2048 -validity 10950 \
-            -storepass android -keypass android \
-            -dname "CN=DiPlay Nezha"
+          if [ -z "$NEZHA_KEYSTORE_B64" ] || [ -z "$NEZHA_STORE_PASSWORD" ] || [ -z "$NEZHA_KEY_ALIAS" ] || [ -z "$NEZHA_KEY_PASSWORD" ]; then
+            echo "::error::Nezha signing secrets missing (NEZHA_KEYSTORE_B64 / NEZHA_STORE_PASSWORD / NEZHA_KEY_ALIAS / NEZHA_KEY_PASSWORD). Refusing to build with a temporary keystore."
+            exit 1
+          fi
+          echo "$NEZHA_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          ls -la "$RUNNER_TEMP/release.keystore"
 
       - name: Build release APK
         env:
           DIPLAY_AUTH_ASSETS_DIR: ${{ github.workspace }}/runtime-assets
-          ANDROID_KEYSTORE_PATH: /tmp/release.keystore
-          ANDROID_KEYSTORE_PASSWORD: android
-          ANDROID_KEY_ALIAS: diplay-neta
-          ANDROID_KEY_PASSWORD: android
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.NEZHA_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.NEZHA_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.NEZHA_KEY_PASSWORD }}
         run: ./gradlew :mobile:assembleRelease --stacktrace
 
       - name: Verify APK contents
@@ -55,6 +64,8 @@ jobs:
           APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
           echo "APK=$APK"
           unzip -l "$APK" | grep "assets/offline-mfi/"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK" | grep -i "SHA-256"
           ls -la "$(dirname "$APK")"
 
       - name: Upload APK artifact
