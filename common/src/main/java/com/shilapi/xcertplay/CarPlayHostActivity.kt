@@ -1381,6 +1381,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 val requestedScale = AirPlayPersistence.loadClusterMapScalePercent(this)
                 val smallWindow = smallWindowActive()
                 requestedSmallWindowForStream = smallWindow
+                // The Nezha panel is fully visible, so it must not inherit the DiLink safe
+                // area that shrinks the map into the uncovered centre of a BYD cluster.
+                val nezhaCluster = NezhaClusterDisplay.accepts(display.name, size.x, size.y)
                 fun streamAt(scale: Int) = CarPlayClusterDisplay.config(
                     size.x,
                     size.y,
@@ -1392,6 +1395,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     else AirPlayPersistence.loadClusterMarkerXPercent(this),
                     markerYPercent = if (smallWindow) AirPlayPersistence.loadClusterSmallWindowMarkerYPercent(this)
                     else AirPlayPersistence.loadClusterMarkerYPercent(this),
+                    baseSafeArea = if (nezhaCluster) NezhaClusterDisplay.SAFE_AREA_PERCENT
+                    else CarPlayClusterDisplay.SAFE_AREA_PERCENT,
                 )
                 val requested = streamAt(requestedScale)
                 // The smaller-map preset enlarges the encoded canvas beyond this panel. Probe
