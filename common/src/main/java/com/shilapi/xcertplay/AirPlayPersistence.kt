@@ -77,6 +77,12 @@ object AirPlayPersistence {
     private const val KEY_SMOOTH_VIDEO = "smooth_video"
     private const val KEY_MTK_DECODER_TUNING = "mtk_decoder_tuning"
     private const val KEY_DIRECT_VIDEO_OUTPUT = "direct_video_output"
+    private const val KEY_INTEL_SMOOTH_SNAPSHOT_PRESENT = "intel_smooth_snapshot_present"
+    private const val KEY_INTEL_SMOOTH_SNAPSHOT_PERCENT = "intel_smooth_snapshot_percent"
+    private const val KEY_INTEL_SMOOTH_SNAPSHOT_FPS = "intel_smooth_snapshot_fps"
+    private const val KEY_INTEL_SMOOTH_SNAPSHOT_HEVC = "intel_smooth_snapshot_hevc"
+    private const val KEY_INTEL_SMOOTH_SNAPSHOT_SMOOTH = "intel_smooth_snapshot_smooth"
+    private const val KEY_INTEL_SMOOTH_SNAPSHOT_DIRECT = "intel_smooth_snapshot_direct"
     private const val KEY_LOW_LATENCY_DECODER = "low_latency_decoder"
     private const val KEY_FPS_COUNTER = "fps_counter"
     private const val KEY_CLUSTER_MAP = "cluster_map_enabled"
@@ -667,6 +673,106 @@ object AirPlayPersistence {
 
     fun saveDirectVideoOutput(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_DIRECT_VIDEO_OUTPUT, enabled).apply()
+    }
+
+    /** One-tap video profile for Intel head units without hardware decoding; all targets live here. */
+    const val INTEL_SMOOTH_DISPLAY_SCALE_PERCENT = 67
+    const val INTEL_SMOOTH_FPS = 30
+    const val INTEL_SMOOTH_HEVC_ENABLED = false
+    const val INTEL_SMOOTH_VIDEO = true
+    const val INTEL_SMOOTH_DIRECT_VIDEO_OUTPUT = true
+
+    /** The five video values Intel smooth mode overwrites, kept so turning it off restores them. */
+    data class IntelSmoothSnapshot(
+        val displayScalePercent: Int,
+        val fps: Int,
+        val hevcEnabled: Boolean,
+        val smoothVideo: Boolean,
+        val directVideoOutput: Boolean,
+    )
+
+    fun loadIntelSmoothSnapshot(context: Context): IntelSmoothSnapshot? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_INTEL_SMOOTH_SNAPSHOT_PRESENT, false)) return null
+        return IntelSmoothSnapshot(
+            displayScalePercent = prefs.getInt(KEY_INTEL_SMOOTH_SNAPSHOT_PERCENT, 100),
+            fps = prefs.getInt(KEY_INTEL_SMOOTH_SNAPSHOT_FPS, 30),
+            hevcEnabled = prefs.getBoolean(KEY_INTEL_SMOOTH_SNAPSHOT_HEVC, false),
+            smoothVideo = prefs.getBoolean(KEY_INTEL_SMOOTH_SNAPSHOT_SMOOTH, false),
+            directVideoOutput = prefs.getBoolean(KEY_INTEL_SMOOTH_SNAPSHOT_DIRECT, false),
+        )
+    }
+
+    fun saveIntelSmoothSnapshot(context: Context, snapshot: IntelSmoothSnapshot) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_INTEL_SMOOTH_SNAPSHOT_PRESENT, true)
+            .putInt(KEY_INTEL_SMOOTH_SNAPSHOT_PERCENT, snapshot.displayScalePercent)
+            .putInt(KEY_INTEL_SMOOTH_SNAPSHOT_FPS, snapshot.fps)
+            .putBoolean(KEY_INTEL_SMOOTH_SNAPSHOT_HEVC, snapshot.hevcEnabled)
+            .putBoolean(KEY_INTEL_SMOOTH_SNAPSHOT_SMOOTH, snapshot.smoothVideo)
+            .putBoolean(KEY_INTEL_SMOOTH_SNAPSHOT_DIRECT, snapshot.directVideoOutput)
+            .apply()
+    }
+
+    fun clearIntelSmoothSnapshot(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_INTEL_SMOOTH_SNAPSHOT_PRESENT)
+            .remove(KEY_INTEL_SMOOTH_SNAPSHOT_PERCENT)
+            .remove(KEY_INTEL_SMOOTH_SNAPSHOT_FPS)
+            .remove(KEY_INTEL_SMOOTH_SNAPSHOT_HEVC)
+            .remove(KEY_INTEL_SMOOTH_SNAPSHOT_SMOOTH)
+            .remove(KEY_INTEL_SMOOTH_SNAPSHOT_DIRECT)
+            .apply()
+    }
+
+    /** True when all five video values already match the Intel smooth profile. */
+    fun isIntelSmoothModeActive(context: Context): Boolean =
+        loadDisplayScalePercent(context) == INTEL_SMOOTH_DISPLAY_SCALE_PERCENT &&
+            loadFps(context) == INTEL_SMOOTH_FPS &&
+            loadHevcEnabled(context) == INTEL_SMOOTH_HEVC_ENABLED &&
+            loadSmoothVideo(context) == INTEL_SMOOTH_VIDEO &&
+            loadDirectVideoOutput(context) == INTEL_SMOOTH_DIRECT_VIDEO_OUTPUT
+
+    /** Writes the five profile values, first snapshotting the current ones if none is kept yet. */
+    fun applyIntelSmoothMode(context: Context) {
+        if (loadIntelSmoothSnapshot(context) == null) {
+            saveIntelSmoothSnapshot(
+                context,
+                IntelSmoothSnapshot(
+                    displayScalePercent = loadDisplayScalePercent(context),
+                    fps = loadFps(context),
+                    hevcEnabled = loadHevcEnabled(context),
+                    smoothVideo = loadSmoothVideo(context),
+                    directVideoOutput = loadDirectVideoOutput(context),
+                ),
+            )
+        }
+        saveDisplayScalePercent(context, INTEL_SMOOTH_DISPLAY_SCALE_PERCENT)
+        // Keep the legacy tenths key in sync the same way the CarPlay host derives it.
+        saveDisplayScaleTenths(
+            context,
+            CarPlayDisplayScale.sanitize((INTEL_SMOOTH_DISPLAY_SCALE_PERCENT + 5) / 10),
+        )
+        saveFps(context, INTEL_SMOOTH_FPS)
+        saveHevcEnabled(context, INTEL_SMOOTH_HEVC_ENABLED)
+        saveSmoothVideo(context, INTEL_SMOOTH_VIDEO)
+        saveDirectVideoOutput(context, INTEL_SMOOTH_DIRECT_VIDEO_OUTPUT)
+    }
+
+    /** Restores the snapshotted values and clears the snapshot; false when there is none. */
+    fun restoreIntelSmoothSnapshot(context: Context): Boolean {
+        val snapshot = loadIntelSmoothSnapshot(context) ?: return false
+        saveDisplayScalePercent(context, snapshot.displayScalePercent)
+        saveDisplayScaleTenths(
+            context,
+            CarPlayDisplayScale.sanitize((snapshot.displayScalePercent + 5) / 10),
+        )
+        saveFps(context, snapshot.fps)
+        saveHevcEnabled(context, snapshot.hevcEnabled)
+        saveSmoothVideo(context, snapshot.smoothVideo)
+        saveDirectVideoOutput(context, snapshot.directVideoOutput)
+        clearIntelSmoothSnapshot(context)
+        return true
     }
 
     fun loadFpsCounter(context: Context): Boolean =

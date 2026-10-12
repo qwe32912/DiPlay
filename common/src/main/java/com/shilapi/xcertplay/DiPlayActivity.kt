@@ -1911,6 +1911,18 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     AirPlayPersistence.saveHideBydCallPopup(this, it)
                 }
             }
+            toggle(card, getString(R.string.settings_intel_smooth_mode),
+                getString(R.string.settings_intel_smooth_mode_description),
+                AirPlayPersistence.isIntelSmoothModeActive(this)) { enabled ->
+                if (enabled) {
+                    AirPlayPersistence.applyIntelSmoothMode(this)
+                } else {
+                    // Without a snapshot the values were set by hand; leave them untouched.
+                    AirPlayPersistence.restoreIntelSmoothSnapshot(this)
+                }
+                markReconnectNeeded()
+                render()
+            }
             toggle(card, getString(R.string.efficient_video), getString(R.string.use_hevc_leave_off_for_the_widest_head_unit_compatibility), AirPlayPersistence.loadHevcEnabled(this)) {
                 AirPlayPersistence.saveHevcEnabled(this, it)
                 markReconnectNeeded()
