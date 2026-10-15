@@ -9,23 +9,24 @@ import com.shilapi.xcertplay.hud.ClusterTurnGuidance
 /**
  * Opens the Nezha cluster's navigation mirror gate, strictly following real guidance.
  *
- * The OEM cluster service only forwards frames from the NaviDisplay presentation to
- * the physical panel while a navigation session is open, and it opens that session
- * for the standard AutoNavi guidance broadcast — the same broadcast the car's own
- * Amap build sends, with no caller verification. State 8 starts a session (and
- * carries the turn card fields), state 9 ends it.
+ * Mirrors the car's own Amap protocol split (verified by decompiling the stock
+ * Amap): guidance DATA goes in KEY_TYPE=10001, navigation STATE goes in
+ * KEY_TYPE=10019 (EXTRA_STATE 8=start, 9=end) with no data fields.
  *
- * A bare state-8 with no guidance data puts the cluster into cruise UI, which kicks
- * the user off the music page when they are not navigating. So the gate is opened
- * only while the iPhone reports real turn-by-turn guidance, and closed (state 9)
- * as soon as guidance ends or the presentation hides. Broadcasts are only sent
- * while a presentation is actually shown on the Nezha display, so other cars never
- * see them.
+ * The OEM cluster service enables the NaviDisplay mirror at boot (CLUSTER_READY),
+ * so we never need to "open" it — we only must avoid closing it. Sending
+ * 10019/9 stops frame forwarding (isNaviMirrorCasting=false), which kills cruise
+ * mode after navigation ends. So state 9 is sent only when the presentation is
+ * truly hidden (CarPlay disconnected), never on guidance end.
+ *
+ * Broadcasts are only sent while a presentation is actually shown on the Nezha
+ * display, so other cars never see them.
  */
 internal object NezhaClusterGate {
     private const val TAG = "DiPlay-NezhaGate"
     private const val ACTION = "AUTONAVI_STANDARD_BROADCAST_SEND"
     private const val CLUSTER_PACKAGE = "com.ofilm.clusterinterconnection"
+    private const val KEY_TYPE_GUIDANCE = 10001
     private const val KEY_TYPE_NAVIGATION = 10019
     private const val STATE_START = 8
     private const val STATE_END = 9
@@ -39,51 +40,68 @@ internal object NezhaClusterGate {
         val size = ClusterMapPresentation.sizeOf(display)
         if (!NezhaClusterDisplay.accepts(display.name, size.x, size.y)) return
         shown = true
-        // Do NOT open the gate here: a bare START with no guidance data puts the
+        // Do NOT send state here: a bare START with no guidance data puts the
         // cluster into cruise UI and kicks the user off the music page.
         val g = guidance
         if (g != null && !gateOpen) {
             gateOpen = true
-            send(context, STATE_START, g)
+            sendState(context, STATE_START)
+            sendGuidance(context, g)
         }
     }
 
     @Synchronized
     fun onGuidanceChanged(context: Context, next: ClusterTurnGuidance?) {
+        val wasNavigating = guidance != null
         guidance = next
+        if (!shown) return
         if (next != null) {
-            if (!shown) return
-            if (!gateOpen) gateOpen = true
-            send(context, STATE_START, next)
-        } else if (gateOpen) {
+            if (!wasNavigating) {
+                // Navigation just started: bare state 8, then the data payload.
+                gateOpen = true
+                sendState(context, STATE_START)
+            }
+            sendGuidance(context, next)
+        } else {
+            // Guidance ended: do NOT send state 9 — that would stop the mirror
+            // and kill cruise mode. Just stop sending data; the mirror stays up.
             gateOpen = false
-            send(context, STATE_END, null)
         }
     }
 
     @Synchronized
     fun onPresentationHidden(context: Context) {
         shown = false
+        guidance = null
         if (!gateOpen) return
         gateOpen = false
-        send(context, STATE_END, null)
+        sendState(context, STATE_END)
     }
 
-    private fun send(context: Context, state: Int, guidance: ClusterTurnGuidance?) {
+    /** KEY_TYPE=10001: turn-by-turn guidance data (road name, icon, distances). */
+    private fun sendGuidance(context: Context, guidance: ClusterTurnGuidance) {
+        val intent = Intent(ACTION).apply {
+            setPackage(CLUSTER_PACKAGE)
+            putExtra("KEY_TYPE", KEY_TYPE_GUIDANCE)
+            // ClusterTurnGuidance.icon already uses the AMap NEW_ICON vocabulary
+            // this broadcast expects; distances are metres on both sides.
+            putExtra("NEXT_ROAD_NAME", guidance.road)
+            putExtra("NEW_ICON", guidance.icon)
+            putExtra("SEG_REMAIN_DIS", guidance.distanceMeters)
+            guidance.remainingMeters?.let { putExtra("ROUTE_REMAIN_DIS", it) }
+        }
+        runCatching { context.applicationContext.sendBroadcast(intent) }
+            .onFailure { Log.w(TAG, "cluster guidance broadcast failed", it) }
+    }
+
+    /** KEY_TYPE=10019: navigation state only, no data fields (matches stock Amap). */
+    private fun sendState(context: Context, state: Int) {
         val intent = Intent(ACTION).apply {
             setPackage(CLUSTER_PACKAGE)
             putExtra("KEY_TYPE", KEY_TYPE_NAVIGATION)
             putExtra("EXTRA_STATE", state)
-            if (state == STATE_START && guidance != null) {
-                // ClusterTurnGuidance.icon already uses the AMap NEW_ICON vocabulary
-                // this broadcast expects; distances are metres on both sides.
-                putExtra("NEXT_ROAD_NAME", guidance.road)
-                putExtra("NEW_ICON", guidance.icon)
-                putExtra("SEG_REMAIN_DIS", guidance.distanceMeters)
-                guidance.remainingMeters?.let { putExtra("ROUTE_REMAIN_DIS", it) }
-            }
         }
         runCatching { context.applicationContext.sendBroadcast(intent) }
-            .onFailure { Log.w(TAG, "cluster gate broadcast failed", it) }
+            .onFailure { Log.w(TAG, "cluster state broadcast failed", it) }
     }
 }
