@@ -88,11 +88,17 @@ internal object CarPlayMediaKeys {
         val retained = next.nowPlayingSnapshot()
         onNowPlayingChanged(next)
         next.matchingArtworkSnapshot(retained.artworkTransferId)?.let { onArtworkChanged(next, it.id, it.bytes) }
-        // Create the session immediately (without audio focus) so steering-wheel
-        // keys always reach DiPlay during the CarPlay connection. Focus is only
-        // requested when music actually plays (see updateLocked).
+        // Nezha fix: create the MediaSession immediately on attach, don't wait for
+        // onMediaAudioChanged(true) which may never fire reliably. The session must
+        // exist to receive steering wheel keys. Focus is requested later when music
+        // actually plays (via updateLocked -> regainFocusLocked).
         if (session == null) {
-            createSessionLocked(appContext!!)
+            session = MediaSession(context, "DiPlay CarPlay").apply {
+                setCallback(callback, mainHandler)
+                setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
+                isActive = true
+            }
+            Log.i(TAG, "media session created on attach (no focus yet)")
         }
     }
 
@@ -107,7 +113,6 @@ internal object CarPlayMediaKeys {
         controller = null
         GeelyWheelKeys.stop()
         releaseLocked()
-        appContext?.let { NezhaMusicPublisher.onSessionEnded(it) }
     }
 
     /** Called when CarPlay music starts or stops; may run on any thread. */
@@ -157,7 +162,6 @@ internal object CarPlayMediaKeys {
                 // minutes. The position goes in the playback state.
                 if (metadataChanged) session?.setMetadata(androidMetadata(update, shownArtworkLocked()))
                 publishPlaybackStateLocked()
-                appContext?.let { NezhaMusicPublisher.onNowPlaying(it, update, elapsedUpdatedAt) }
             }
         }
     }
@@ -165,7 +169,6 @@ internal object CarPlayMediaKeys {
     @Synchronized
     private fun onArtworkChanged(expected: CarPlayController, id: Int, bytes: ByteArray) {
         if (controller !== expected) return
-        NezhaMusicPublisher.onArtwork(id, bytes)
         artworkOwner?.let { artworkQueue.submit(it, id, bytes) }
     }
 
@@ -265,15 +268,33 @@ internal object CarPlayMediaKeys {
     // keys. When CarPlay starts playing again it becomes the car's media source again, as any player
     // would; only the start counts, so a car source picked while the iPhone plays on is not undone.
     private fun regainFocusLocked() {
+        val request = focusRequest ?: return
+        if (focusHeld) return
+        val audio = appContext?.getSystemService(AudioManager::class.java) ?: return
+        focusHeld = request.request(audio) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (focusHeld) forwardGrantedFocusLocked()
+        Log.i(TAG, "audio focus regained=$focusHeld")
+    }
+
+    private fun updateLocked(active: Boolean) {
+        val context = appContext ?: return
+        if (controller == null) return
+        mediaAudioActive = active
+        if (active && session == null) start(context) else if (active) regainFocusLocked()
+        publishPlaybackStateLocked()
+    }
+
+    private fun start(context: Context) {
         val expectedController = controller ?: return
-        // Create the focus request if it doesn't exist yet (session was created
-        // at attach() time without focus; music just started).
-        if (focusRequest == null) {
-            val context = appContext ?: return
-            if (AirPlayPersistence.loadDisableMediaKeyAudioFocus(context)) {
-                Log.i(TAG, "focus disabled by setting, not requesting")
-                return
-            }
+        val focusDisabled = AirPlayPersistence.loadDisableMediaKeyAudioFocus(context)
+        val granted = if (focusDisabled) {
+            // Some OEMs route physical volume buttons to the focus owner. Keep an active
+            // MediaSession without permanent focus so those buttons remain vehicle-owned.
+            focusOwner = null
+            focusRequest = null
+            focusHeld = false
+            false
+        } else {
             val owner = Any().also { focusOwner = it }
             focusEventRevision = 0L
             val audio = context.getSystemService(AudioManager::class.java)
@@ -287,70 +308,18 @@ internal object CarPlayMediaKeys {
                 mainHandler,
             )
             focusRequest = request
+            (audio?.let(request::request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED).also {
+                focusHeld = it
+                if (it) forwardGrantedFocusLocked()
+            }
         }
-        val request = focusRequest ?: return
-        if (focusHeld) return
-        val audio = appContext?.getSystemService(AudioManager::class.java) ?: return
-        focusHeld = request.request(audio) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        if (focusHeld) forwardGrantedFocusLocked()
-        Log.i(TAG, "audio focus regained=$focusHeld")
-    }
-
-    private fun updateLocked(active: Boolean) {
-        val context = appContext ?: return
-        if (controller == null) return
-        val wasActive = mediaAudioActive
-        mediaAudioActive = active
-        if (active && session == null) {
-            // Session should already exist from attach(), but create if missing.
-            createSessionLocked(context)
-        }
-        if (active && !wasActive) {
-            // Music just started: request focus so keys come to us.
-            regainFocusLocked()
-        } else if (!active && wasActive) {
-            // Music stopped: abandon focus so other apps (e.g. radio) get keys,
-            // but keep the session alive for the next playback.
-            abandonFocusLocked()
-        }
-        publishPlaybackStateLocked()
-    }
-
-    /** Creates the MediaSession without requesting audio focus. */
-    private fun createSessionLocked(context: Context) {
-        if (session != null) return
         session = MediaSession(context, "DiPlay CarPlay").apply {
             setCallback(callback, mainHandler)
             setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
             isActive = true
         }
-        Log.i(TAG, "media session created (no focus yet)")
-    }
-
-    private fun abandonFocusLocked() {
-        focusRequest?.let { request ->
-            appContext?.getSystemService(AudioManager::class.java)?.let(request::abandon)
-        }
-        focusRequest = null
-        focusOwner = null
-        focusHeld = false
-        Log.i(TAG, "audio focus abandoned (music stopped, session kept)")
-    }
-
-    private fun start(context: Context) {
-        val expectedController = controller ?: return
-        val focusDisabled = AirPlayPersistence.loadDisableMediaKeyAudioFocus(context)
-        createSessionLocked(context)
-        if (!focusDisabled) {
-            regainFocusLocked()
-        } else {
-            // Some OEMs route physical volume buttons to the focus owner. Keep an active
-            // MediaSession without permanent focus so those buttons remain vehicle-owned.
-            focusOwner = null
-            focusRequest = null
-            focusHeld = false
-            Log.i(TAG, "media keys active focusDisabled=true (no focus requested)")
-        }
+        Log.i(TAG, "media keys active focusDisabled=$focusDisabled focusGranted=$granted")
+        WheelKeyLog.note("media keys active focusDisabled=$focusDisabled focusGranted=$granted")
     }
 
     private fun forwardGrantedFocusLocked() {
@@ -378,6 +347,7 @@ internal object CarPlayMediaKeys {
         }
         if (!current) return
         Log.i(TAG, "audio focus change=$change")
+        WheelKeyLog.note("media keys audio focus change=$change")
         // Resolve the matching sink and invoke it outside the media-key monitor. An abandoned
         // request must never mute a newer controller, and these owners must not nest locks.
         val background = CarPlayBackgroundSession.snapshot()
@@ -434,19 +404,12 @@ internal object CarPlayMediaKeys {
         // make the iPhone end the video session.
         if (CarPlayVideo.onMediaKey(index)) {
             Log.i(TAG, "media key $source -> car video player $index")
-            return
-        }
-        // Session is now active for the whole CarPlay connection, but we only forward
-        // keys to the iPhone when CarPlay music is actually playing. Otherwise (e.g.
-        // user is listening to FM radio), ignore so the key can fall through to the
-        // system/other apps.
-        val playing = synchronized(this) { mediaAudioActive }
-        if (!playing) {
-            Log.i(TAG, "media key $source ignored (no CarPlay music playing)")
+            WheelKeyLog.note("media key $source -> car video player $index")
             return
         }
         val sent = synchronized(this) { controller }?.sendMediaButton(index) ?: false
         Log.i(TAG, "media key $source -> CarPlay $index sent=$sent")
+        WheelKeyLog.note("media key $source -> CarPlay $index sent=$sent")
     }
 
     /** A steering-wheel media key captured outside the Android key stream (Geely/Lynk). */
