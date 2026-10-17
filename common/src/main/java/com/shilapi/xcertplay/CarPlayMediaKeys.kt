@@ -95,6 +95,7 @@ internal object CarPlayMediaKeys {
         if (session == null) {
             session = MediaSession(context, "DiPlay CarPlay").apply {
                 setCallback(callback, mainHandler)
+                setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
                 setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
                 isActive = true
             }
@@ -321,6 +322,7 @@ internal object CarPlayMediaKeys {
         }
         session = MediaSession(context, "DiPlay CarPlay").apply {
             setCallback(callback, mainHandler)
+            setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
             setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
             isActive = true
         }
