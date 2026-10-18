@@ -1211,7 +1211,8 @@ class CarPlayHostActivity : ComponentActivity() {
             presentation.show()
             clusterPresentation = presentation
             // Track Nezha for turn-card overlay suppression (native card via 10001 is enough).
-            isNezhaClusterActive = NezhaClusterDisplay.accepts(display.name, size.x, size.y)
+            val nezhaSize = ClusterMapPresentation.sizeOf(display)
+            isNezhaClusterActive = NezhaClusterDisplay.accepts(display.name, nezhaSize.x, nezhaSize.y)
             NezhaClusterGate.onPresentationShown(this, display)
             updateClusterMapShown()
             presentation.setStreamActive(SCREEN_TYPE_ALT in activeScreenStreamTypes)
