@@ -47,7 +47,7 @@ internal object NezhaCarWheelKeys {
                         cabinManager = getManager.invoke(car, "cabin")
                         Log.i(TAG, "cabin manager acquired")
                         startPolling()
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         Log.w(TAG, "getCarManager failed", e)
                     }
                 }
@@ -60,7 +60,7 @@ internal object NezhaCarWheelKeys {
             val connectMethod = carClass.getMethod("connect")
             connectMethod.invoke(car)
             Log.i(TAG, "car connect requested")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.w(TAG, "car API not available", e)
         }
     }
@@ -73,7 +73,7 @@ internal object NezhaCarWheelKeys {
                 val disconnect = it.javaClass.getMethod("disconnect")
                 disconnect.invoke(it)
             }
-        } catch (e: Exception) { /* ignore */ }
+        } catch (e: Throwable) { /* ignore */ }
         car = null
         cabinManager = null
         appContext = null
@@ -109,7 +109,7 @@ internal object NezhaCarWheelKeys {
                 }
                 lastPrev = prev
                 lastNext = next
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.w(TAG, "poll failed", e)
             }
             handler.postDelayed(this, POLL_MILLIS)
@@ -126,7 +126,7 @@ internal object NezhaCarWheelKeys {
             // CarPropertyValue.getValue() returns the actual value (Boolean for buttons)
             val getValue = propValue.javaClass.getMethod("getValue")
             getValue.invoke(propValue)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             null
         }
     }
