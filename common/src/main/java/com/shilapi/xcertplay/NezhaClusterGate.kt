@@ -45,8 +45,7 @@ internal object NezhaClusterGate {
         val g = guidance
         if (g != null && !gateOpen) {
             gateOpen = true
-            // Do NOT send 10019/8: it makes the cluster scale the video (nav mode).
-            // Send only 10001 guidance data; the turn card overlays without resizing.
+            sendState(context, STATE_START)
             sendGuidance(context, g)
         }
     }
@@ -58,8 +57,9 @@ internal object NezhaClusterGate {
         if (!shown) return
         if (next != null) {
             if (!wasNavigating) {
-                // Navigation just started: send data only, no 10019/8 state.
+                // Navigation just started: bare state 8, then the data payload.
                 gateOpen = true
+                sendState(context, STATE_START)
             }
             sendGuidance(context, next)
         } else {
