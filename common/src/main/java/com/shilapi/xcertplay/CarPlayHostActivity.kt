@@ -400,6 +400,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var clusterPresentation: ClusterMapPresentation? = null
     private var clusterSurface: Surface? = null
     private var clusterMonitor: DiLink51ClusterMonitor? = null
+    /** True when the active cluster display is Nezha (uses native turn card, not DiPlay overlay). */
+    private var isNezhaClusterActive = false
     private var detectedCluster = ClusterActivityState.Snapshot(null, false)
     // Keep one surface per layer alive, including while its map card is hidden.
     private val clusterLayers = mutableMapOf<Boolean, ClusterMapPresentation>()
@@ -1199,6 +1201,7 @@ class CarPlayHostActivity : ComponentActivity() {
         presentation.setOnDismissListener {
             if (clusterPresentation === presentation) {
                 clusterPresentation = null
+                isNezhaClusterActive = false
                 com.shilapi.xcertplay.hud.BydNavigationOutputs.setClusterMapShown(false)
                 NezhaClusterGate.onPresentationHidden(this@CarPlayHostActivity)
                 updateClusterMapShown()
@@ -1207,6 +1210,8 @@ class CarPlayHostActivity : ComponentActivity() {
         try {
             presentation.show()
             clusterPresentation = presentation
+            // Track Nezha for turn-card overlay suppression (native card via 10001 is enough).
+            isNezhaClusterActive = NezhaClusterDisplay.accepts(display.name, size.x, size.y)
             NezhaClusterGate.onPresentationShown(this, display)
             updateClusterMapShown()
             presentation.setStreamActive(SCREEN_TYPE_ALT in activeScreenStreamTypes)
@@ -1294,7 +1299,9 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun applyClusterTurnOverlay() {
-        val overlay = CarPlayClusterDisplay.usesCustomTurnCard(AirPlayPersistence.loadClusterContent(this))
+        // Nezha uses the cluster's native turn card (via 10001 broadcasts); DiPlay's overlay
+        // would cover the map. Suppress it.
+        val overlay = !isNezhaClusterActive && CarPlayClusterDisplay.usesCustomTurnCard(AirPlayPersistence.loadClusterContent(this))
         // CN: the small-window navi keeps a second card rect, and the card glass has a theme override.
         val smallWindow = smallWindowActive()
         val xPercent = if (smallWindow) AirPlayPersistence.loadClusterSmallWindowCardXPercent(this)
