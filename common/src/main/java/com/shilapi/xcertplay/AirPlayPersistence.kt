@@ -1330,6 +1330,8 @@ object AirPlayPersistence {
     fun saveClusterMapScalePercent(context: Context, percent: Int) {
         if (percent !in CarPlayClusterDisplay.scalePresets) return
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(KEY_CLUSTER_MAP_SCALE, percent).apply()
+        // Trigger real-time display-side zoom update (no reconnect needed).
+        overlaySettingsListener?.invoke()
     }
 
     fun loadClusterMarkerHorizontalStep(context: Context): Int =
