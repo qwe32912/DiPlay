@@ -1431,9 +1431,11 @@ class CarPlayHostActivity : ComponentActivity() {
                     0,
                     0,
                     AirPlayPersistence.loadClusterContent(this),
-                    markerXPercent = if (smallWindow) AirPlayPersistence.loadClusterSmallWindowMarkerXPercent(this)
+                    markerXPercent = if (nezhaCluster) NezhaClusterDisplay.MARKER_X_PERCENT
+                    else if (smallWindow) AirPlayPersistence.loadClusterSmallWindowMarkerXPercent(this)
                     else AirPlayPersistence.loadClusterMarkerXPercent(this),
-                    markerYPercent = if (smallWindow) AirPlayPersistence.loadClusterSmallWindowMarkerYPercent(this)
+                    markerYPercent = if (nezhaCluster) NezhaClusterDisplay.MARKER_Y_PERCENT
+                    else if (smallWindow) AirPlayPersistence.loadClusterSmallWindowMarkerYPercent(this)
                     else AirPlayPersistence.loadClusterMarkerYPercent(this),
                     baseSafeArea = if (nezhaCluster) NezhaClusterDisplay.SAFE_AREA_PERCENT
                     else CarPlayClusterDisplay.SAFE_AREA_PERCENT,
