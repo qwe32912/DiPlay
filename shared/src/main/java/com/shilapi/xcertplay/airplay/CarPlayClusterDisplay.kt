@@ -71,7 +71,7 @@ object CarPlayClusterDisplay {
      * in the settings means more content, not a magnified view.
      */
     const val STREAM_SCALE_PERCENT = 83
-    val scalePresets = listOf(100, STREAM_SCALE_PERCENT, 50, 33)
+    val scalePresets = listOf(100, STREAM_SCALE_PERCENT, 50, 25)
 
     private const val WIDTH_PHYSICAL_MM = 292 // a 12.3-inch 8:3 cluster panel; Apple Maps ignores it here
     private const val FPS = 30
