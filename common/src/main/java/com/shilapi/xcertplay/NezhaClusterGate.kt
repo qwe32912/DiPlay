@@ -46,9 +46,7 @@ internal object NezhaClusterGate {
         if (g != null && !gateOpen) {
             gateOpen = true
             sendState(context, STATE_START)
-            // Do NOT send 10001: it triggers the native small turn card which replaces
-            // the CarPlay video. The iPhone's video already contains turn info.
-            // sendGuidance(context, g)
+            sendGuidance(context, g)
         }
     }
 
@@ -59,11 +57,11 @@ internal object NezhaClusterGate {
         if (!shown) return
         if (next != null) {
             if (!wasNavigating) {
-                // Navigation just started: state 8 only, no 10001 data.
+                // Navigation just started: state 8, then guidance data.
                 gateOpen = true
                 sendState(context, STATE_START)
             }
-            // sendGuidance(context, next)
+            sendGuidance(context, next)
         } else {
             // Guidance ended: do NOT send state 9 — that would stop the mirror
             // and kill cruise mode. Just stop sending data; the mirror stays up.
