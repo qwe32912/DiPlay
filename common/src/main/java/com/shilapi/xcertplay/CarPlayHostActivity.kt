@@ -1319,11 +1319,15 @@ class CarPlayHostActivity : ComponentActivity() {
         ClusterActivityOutput.setTurnCard(if (overlay) clusterTurnGuidance else null,
             xPercent, yPercent, sizePercent, effectiveOpacity, effectiveNight)
         val presentations = (clusterLayers.values + listOfNotNull(clusterPresentation)).distinct()
+        // Display-side zoom: real-time, no reconnect needed. Smaller scalePercent = bigger zoom.
+        val mapScale = AirPlayPersistence.loadClusterMapScalePercent(this).coerceIn(25, 150)
+        val videoZoom = 100f / mapScale
         for (presentation in presentations) {
             presentation.setTurnCardOverlay(xPercent, yPercent, sizePercent)
             presentation.setTurnCardOpacity(effectiveOpacity)
             presentation.setTurnCardNightMode(effectiveNight)
             presentation.setTurnCardGuidance(if (overlay) clusterTurnGuidance else null)
+            presentation.setVideoZoom(videoZoom)
         }
     }
     private fun dismissClusterPresentation() {
@@ -1416,14 +1420,15 @@ class CarPlayHostActivity : ComponentActivity() {
                         markerYPercent = AirPlayPersistence.loadClusterMarkerYPercent(this),
                     ).also { MapMirrors.streamAspect = it.widthPixels.toDouble() / it.heightPixels }
                 }
-                val requestedScale = AirPlayPersistence.loadClusterMapScalePercent(this)
-                val smallWindow = smallWindowActive()
-                requestedSmallWindowForStream = smallWindow
                 // The Nezha panel is fully visible, so it must not inherit the DiLink safe
                 // area that shrinks the map into the uncovered centre of a BYD cluster, nor
                 // the DiLink-calibrated marker sliders: its marker is pinned to the centre
                 // for a full-frame safe-area declaration (see NezhaClusterDisplay).
                 val nezhaCluster = NezhaClusterDisplay.accepts(display.name, size.x, size.y)
+                // For Nezha: iPhone always sends full-res (100%); display-side zoom handles magnification in real-time.
+                val requestedScale = if (nezhaCluster) 100 else AirPlayPersistence.loadClusterMapScalePercent(this)
+                val smallWindow = smallWindowActive()
+                requestedSmallWindowForStream = smallWindow
                 fun streamAt(scale: Int) = CarPlayClusterDisplay.config(
                     size.x,
                     size.y,

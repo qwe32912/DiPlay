@@ -197,6 +197,14 @@ internal class ClusterMapPresentation(
         turnCardView?.setGuidance(guidance)
     }
 
+    /** Display-side zoom (real-time, no reconnect). 1.0 = no zoom, 2.0 = 2x. */
+    fun setVideoZoom(zoom: Float) {
+        videoView?.apply {
+            scaleX = zoom
+            scaleY = zoom
+        }
+    }
+
     companion object {
         const val TAG = "DiPlay-Cluster"
 
