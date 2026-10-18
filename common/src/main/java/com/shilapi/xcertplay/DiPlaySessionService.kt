@@ -73,6 +73,8 @@ class DiPlaySessionService : Service() {
 
     /** Cleans once right away, then every [BackgroundCleaner.CLEAN_INTERVAL_MILLIS] until stopped. */
     private fun startBackgroundCleaner() {
+        // Disabled by user request (2026-10-18): no longer kills background processes.
+        return
         // onStartCommand can be called again for a running service; never run two loops.
         if (backgroundCleanerRunning) return
         backgroundCleanerRunning = true
