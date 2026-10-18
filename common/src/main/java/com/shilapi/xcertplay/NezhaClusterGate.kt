@@ -46,6 +46,7 @@ internal object NezhaClusterGate {
         if (g != null && !gateOpen) {
             gateOpen = true
             sendState(context, STATE_START)
+            sendState(context, STATE_END)
             sendGuidance(context, g)
         }
     }
@@ -57,9 +58,12 @@ internal object NezhaClusterGate {
         if (!shown) return
         if (next != null) {
             if (!wasNavigating) {
-                // Navigation just started: state 8, then guidance data.
+                // Navigation just started: send state 8 to trigger video, then immediately
+                // send state 9 to exit nav mode (per user: 10019/8 causes scaling).
+                // Keep sending 10001 for turn data.
                 gateOpen = true
                 sendState(context, STATE_START)
+                sendState(context, STATE_END)
             }
             sendGuidance(context, next)
         } else {
