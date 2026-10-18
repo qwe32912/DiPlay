@@ -78,6 +78,7 @@ internal object CarPlayMediaKeys {
         appContext = context.applicationContext
         controller = next
         GeelyWheelKeys.start(context)
+        NezhaCarWheelKeys.start(context)
         com.shilapi.xcertplay.media.AmbientMusicController.claimPlaybackOwner(next)
         next.playbackListener = { playing ->
             com.shilapi.xcertplay.media.AmbientMusicController.phonePlaybackChanged(next, playing)
@@ -113,6 +114,7 @@ internal object CarPlayMediaKeys {
         expected.artworkListener = null
         controller = null
         GeelyWheelKeys.stop()
+        NezhaCarWheelKeys.stop()
         releaseLocked()
         // Nezha: clear cluster music display
         appContext?.let { NezhaMusicPublisher.onSessionEnded(it) }
