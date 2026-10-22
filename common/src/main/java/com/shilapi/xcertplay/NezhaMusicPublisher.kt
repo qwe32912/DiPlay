@@ -34,8 +34,14 @@ internal object NezhaMusicPublisher {
     private const val SOURCE_TYPE = "QQMusic"
     private const val TICK_MS = 1_000L
 
-    private val thread = HandlerThread("diplay-nezha-music").apply { start() }
-    private val handler = Handler(thread.looper)
+    // Lazy: merely loading this object (for example from a media-key teardown path
+    // that never publishes) must not spawn the thread. Creating the handler can
+    // also fail where no real Looper exists (unit tests), so every entry point
+    // below guards its post with runCatching: publishing stays strictly silent.
+    private val handler: Handler by lazy {
+        val thread = HandlerThread("diplay-nezha-music").apply { start() }
+        Handler(thread.looper)
+    }
 
     // Everything below is confined to the handler thread.
     private var appContext: Context? = null
@@ -60,7 +66,7 @@ internal object NezhaMusicPublisher {
 
     /** A now-playing snapshot arrived; [elapsedAtRealtime] is when its elapsed value was true. */
     fun onNowPlaying(context: Context, update: CarPlayNowPlaying, elapsedAtRealtime: Long) {
-        handler.post {
+        runCatching { handler.post {
             appContext = context.applicationContext
             val previous = snapshot
             snapshot = update
@@ -77,21 +83,21 @@ internal object NezhaMusicPublisher {
                 previous.playing != update.playing
             if (displayChanged) push()
             updateTicker()
-        }
+        } }
     }
 
     /** Raw artwork bytes for transfer [id], exactly as the iPhone sent them. */
     fun onArtwork(id: Int, bytes: ByteArray) {
-        handler.post {
+        runCatching { handler.post {
             artworkId = id
             artworkBytes = bytes
             if (snapshot?.artworkTransferId == id) push()
-        }
+        } }
     }
 
     /** The CarPlay session ended: report stopped once, then let the hub go. */
     fun onSessionEnded(context: Context) {
-        handler.post {
+        runCatching { handler.post {
             stopTicker()
             val last = snapshot
             if (pushed && last != null && last.playing) {
@@ -105,7 +111,7 @@ internal object NezhaMusicPublisher {
             bindFailed = false
             unbind()
             appContext = context.applicationContext
-        }
+        } }
     }
 
     private fun updateTicker() {
