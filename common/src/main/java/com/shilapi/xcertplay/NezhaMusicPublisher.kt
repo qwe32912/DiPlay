@@ -174,23 +174,28 @@ internal object NezhaMusicPublisher {
             component = ComponentName(HUB_PACKAGE, HUB_SERVICE)
         }
         val conn = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-                handler.post {
+            // Nullable parameters: the framework never passes null on a car, but
+            // test doubles (Robolectric's ShadowInstrumentation) call this with a
+            // null name, and a Kotlin non-null parameter would throw before the
+            // body runs. A missing binder simply means there is no hub to talk to.
+            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                val serviceBinder = binder ?: return
+                runCatching { handler.post {
                     if (connection !== this) return@post
-                    remote = IRadioMetadataAidlInterface.Stub.asInterface(binder)
+                    remote = IRadioMetadataAidlInterface.Stub.asInterface(serviceBinder)
                     binding = false
                     push()
                     updateTicker()
-                }
+                } }
             }
 
-            override fun onServiceDisconnected(name: ComponentName) {
-                handler.post {
+            override fun onServiceDisconnected(name: ComponentName?) {
+                runCatching { handler.post {
                     if (connection === this) {
                         remote = null
                         binding = false
                     }
-                }
+                } }
             }
         }
         connection = conn
