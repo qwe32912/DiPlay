@@ -468,6 +468,7 @@ class CarPlayHostActivity : ComponentActivity() {
         runOnUiThread {
             clusterTurnGuidance = guidance
             applyClusterTurnOverlay()
+            NezhaClusterGate.onGuidanceChanged(this@CarPlayHostActivity, guidance)
         }
     }
     // Copies of stream 111 outside the dashboard (centre card, launcher maps) each get their own decoder.
@@ -1349,12 +1350,14 @@ class CarPlayHostActivity : ComponentActivity() {
             if (clusterPresentation === presentation) {
                 clusterPresentation = null
                 com.shilapi.xcertplay.hud.BydNavigationOutputs.setClusterMapShown(false)
+                NezhaClusterGate.onPresentationHidden(this@CarPlayHostActivity)
                 updateClusterMapShown()
             }
         }
         try {
             presentation.show()
             clusterPresentation = presentation
+            NezhaClusterGate.onPresentationShown(this, display)
             updateClusterMapShown()
             presentation.setStreamActive(SCREEN_TYPE_ALT in activeScreenStreamTypes)
             applyClusterTurnOverlay()
@@ -1474,6 +1477,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
     private fun dismissClusterPresentation() {
+        NezhaClusterGate.onPresentationHidden(this)
         ClusterActivityOutput.stop(this)
         val presentations = (clusterLayers.values + listOfNotNull(clusterPresentation)).distinct()
         clusterLayers.clear()
@@ -1573,6 +1577,26 @@ class CarPlayHostActivity : ComponentActivity() {
                         markerXPercent = AirPlayPersistence.loadClusterMarkerXPercent(this),
                         markerYPercent = AirPlayPersistence.loadClusterMarkerYPercent(this),
                     ).also { MapMirrors.streamAspect = it.widthPixels.toDouble() / it.heightPixels }
+                }
+                if (NezhaClusterDisplay.accepts(display.name, size.x, size.y)) {
+                    // The Nezha panel is fully visible, so it must not inherit the DiLink safe
+                    // area that shrinks the map into the uncovered centre of a BYD cluster, nor
+                    // the DiLink-calibrated marker sliders: its marker is pinned to the centre
+                    // for a full-frame safe-area declaration (see NezhaClusterDisplay).
+                    return CarPlayClusterDisplay.config(
+                        size.x,
+                        size.y,
+                        100,
+                        0,
+                        0,
+                        AirPlayPersistence.loadClusterContent(this),
+                        markerXPercent = NezhaClusterDisplay.MARKER_X_PERCENT,
+                        markerYPercent = NezhaClusterDisplay.MARKER_Y_PERCENT,
+                        baseSafeArea = NezhaClusterDisplay.SAFE_AREA_PERCENT,
+                    ).also {
+                        MapMirrors.streamAspect = it.widthPixels.toDouble() / it.heightPixels
+                        appendLog("Cluster map: Nezha instrument ${size.x}x${size.y}; stream ${it.widthPixels}x${it.heightPixels}; safeArea=${it.safeArea}")
+                    }
                 }
                 val requestedScale = AirPlayPersistence.loadClusterMapScalePercent(this)
                 val smallWindow = smallWindowActive()

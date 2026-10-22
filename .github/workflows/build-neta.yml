@@ -1,0 +1,75 @@
+name: Build Nezha APK
+
+# 手动触发：Actions 页面 -> Build Nezha APK -> Run workflow（在 neta-cluster-music 分支上运行）
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract auth assets from official 0.2.21 APK
+        run: |
+          curl -sL -o /tmp/official.apk https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.21/DiPlay-0.2.21.apk
+          mkdir -p runtime-assets/offline-mfi
+          unzip -o -j /tmp/official.apk "assets/offline-mfi/*" -d runtime-assets/offline-mfi
+          ls -la runtime-assets/offline-mfi/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 固定签名：keystore 存在仓库 Actions secrets（NEZHA_KEYSTORE_B64 等），所有版本共用同一证书，可覆盖安装。
+      # secrets 缺失时直接失败，禁止回退到临时密钥（历史上临时密钥导致每版签名不同、必须卸载重装）。
+      - name: Restore fixed signing keystore
+        env:
+          NEZHA_KEYSTORE_B64: ${{ secrets.NEZHA_KEYSTORE_B64 }}
+          NEZHA_STORE_PASSWORD: ${{ secrets.NEZHA_STORE_PASSWORD }}
+          NEZHA_KEY_ALIAS: ${{ secrets.NEZHA_KEY_ALIAS }}
+          NEZHA_KEY_PASSWORD: ${{ secrets.NEZHA_KEY_PASSWORD }}
+        run: |
+          if [ -z "$NEZHA_KEYSTORE_B64" ] || [ -z "$NEZHA_STORE_PASSWORD" ] || [ -z "$NEZHA_KEY_ALIAS" ] || [ -z "$NEZHA_KEY_PASSWORD" ]; then
+            echo "::error::Nezha signing secrets missing (NEZHA_KEYSTORE_B64 / NEZHA_STORE_PASSWORD / NEZHA_KEY_ALIAS / NEZHA_KEY_PASSWORD). Refusing to build with a temporary keystore."
+            exit 1
+          fi
+          echo "$NEZHA_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          ls -la "$RUNNER_TEMP/release.keystore"
+
+      - name: Build release APK
+        env:
+          DIPLAY_AUTH_ASSETS_DIR: ${{ github.workspace }}/runtime-assets
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.NEZHA_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.NEZHA_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.NEZHA_KEY_PASSWORD }}
+        run: ./gradlew :mobile:assembleRelease --stacktrace
+
+      - name: Verify APK contents
+        run: |
+          APK=$(ls mobile/build/outputs/apk/release/*.apk | head -1)
+          echo "APK=$APK"
+          unzip -l "$APK" | grep "assets/offline-mfi/"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK" | grep -i "SHA-256"
+          ls -la "$(dirname "$APK")"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiPlay-0.2.21-neta
+          path: mobile/build/outputs/apk/release/*.apk

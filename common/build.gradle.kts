@@ -20,6 +20,8 @@ android {
 
     buildFeatures {
         compose = true
+        // IRadioMetadataAidlInterface (Nezha media hub publishing port).
+        aidl = true
     }
 
     testOptions {

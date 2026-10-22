@@ -266,7 +266,8 @@ internal class ClusterMapPresentation(
                 }
                 return displays.firstOrNull { display ->
                     val size = sizeOf(display)
-                    DiLink4ClusterDisplay.accepts(display.name, size.x, size.y)
+                    DiLink4ClusterDisplay.accepts(display.name, size.x, size.y) ||
+                        NezhaClusterDisplay.accepts(display.name, size.x, size.y)
                 }
             }
             return displays.firstOrNull { it.name == name }?.takeIf {

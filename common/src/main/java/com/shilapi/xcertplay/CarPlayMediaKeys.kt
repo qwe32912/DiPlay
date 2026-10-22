@@ -103,6 +103,7 @@ internal object CarPlayMediaKeys {
         controller = null
         GeelyWheelKeys.stop()
         releaseLocked()
+        appContext?.let { NezhaMusicPublisher.onSessionEnded(it) }
     }
 
     /** Called when CarPlay music starts or stops; may run on any thread. */
@@ -153,6 +154,7 @@ internal object CarPlayMediaKeys {
                 // minutes. The position goes in the playback state.
                 if (metadataChanged) session?.setMetadata(androidMetadata(update, shownArtworkLocked()))
                 publishPlaybackStateLocked()
+                appContext?.let { NezhaMusicPublisher.onNowPlaying(it, update, elapsedUpdatedAt) }
             }
         }
     }
@@ -160,6 +162,7 @@ internal object CarPlayMediaKeys {
     @Synchronized
     private fun onArtworkChanged(expected: CarPlayController, id: Int, bytes: ByteArray) {
         if (controller !== expected) return
+        NezhaMusicPublisher.onArtwork(id, bytes)
         artworkOwner?.let { artworkQueue.submit(it, id, bytes) }
     }
 
