@@ -1583,10 +1583,21 @@ class CarPlayHostActivity : ComponentActivity() {
                     // area that shrinks the map into the uncovered centre of a BYD cluster, nor
                     // the DiLink-calibrated marker sliders: its marker is pinned to the centre
                     // for a full-frame safe-area declaration (see NezhaClusterDisplay).
+                    //
+                    // The stream itself is requested landscape, not at the 460x500
+                    // portrait size of the NaviDisplay virtual display. Verified on the
+                    // car with phone Gaode: the main screen follows correctly, but the
+                    // portrait cluster stream renders as a whole-route overview — the
+                    // phone's following view needs a landscape canvas. The Presentation
+                    // surface (460x500) squashes the landscape frame horizontally and
+                    // the cluster service stretches it back onto the landscape map
+                    // page, so the net aspect is the stream aspect as long as the page
+                    // is landscape too. If the page turns out not to be, the map will
+                    // look stretched and the stream size is the knob to revisit.
                     return CarPlayClusterDisplay.config(
-                        size.x,
-                        size.y,
-                        100,
+                        920,
+                        500,
+                        AirPlayPersistence.loadNezhaClusterMapScalePercent(this),
                         0,
                         0,
                         AirPlayPersistence.loadClusterContent(this),

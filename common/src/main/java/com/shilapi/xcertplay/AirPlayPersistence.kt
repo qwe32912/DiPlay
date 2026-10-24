@@ -1279,6 +1279,17 @@ object AirPlayPersistence {
             .takeIf { it in CarPlayClusterDisplay.scalePresets } ?: default
     }
 
+    /**
+     * The Nezha branch used to ignore the cluster map scale setting entirely
+     * (it passed a literal 100). Honor the setting when the user changed it,
+     * but keep 100 as the Nezha default: the generic default (83) was calibrated
+     * for DiLink panels, not for this one.
+     */
+    fun loadNezhaClusterMapScalePercent(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return if (prefs.contains(KEY_CLUSTER_MAP_SCALE)) loadClusterMapScalePercent(context) else 100
+    }
+
     fun saveClusterMapScalePercent(context: Context, percent: Int) {
         if (percent !in CarPlayClusterDisplay.scalePresets) return
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(KEY_CLUSTER_MAP_SCALE, percent).apply()
